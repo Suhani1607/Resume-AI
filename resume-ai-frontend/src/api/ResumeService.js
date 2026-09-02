@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const baseURL = "http://localhost:8080";
+export const baseURL = "https://resume-ai-p644.onrender.com";
 
 export const axiosInstance = axios.create({
   baseURL: baseURL,
