@@ -1,18 +1,18 @@
 package com.resume_ai_backend.resume_ai_backend.service;
 
-
-
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.ResponseFormat;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
@@ -28,6 +28,10 @@ public class ResumeServiceImpl implements ResumeService {
         this.chatClient = builder.build();
         this.objectMapper = objectMapper;
     }
+
+    // =====================================================
+    // MAIN METHOD
+    // =====================================================
 
     @Override
     public Map<String, Object> generateResumeResponse(
@@ -63,72 +67,27 @@ public class ResumeServiceImpl implements ResumeService {
                 );
 
         // -------------------------------------------------
-        // FIRST AI REQUEST
+        // CALL AI
         // -------------------------------------------------
 
         String response = callAI(promptContent);
 
         System.out.println(
-                "\n================ AI FIRST RESPONSE ================\n"
+                "\n================ AI RESPONSE ================\n"
         );
 
         System.out.println(response);
 
         System.out.println(
-                "\n====================================================\n"
+                "\n==============================================\n"
         );
 
         // -------------------------------------------------
-        // PARSE FIRST RESPONSE
+        // PARSE JSON
         // -------------------------------------------------
 
-        Map<String, Object> resumeData;
-
-        try {
-
-            resumeData = parseResumeResponse(response);
-
-        } catch (IOException e) {
-
-            System.err.println(
-                    "First AI response was invalid."
-            );
-
-            resumeData = null;
-        }
-
-        // -------------------------------------------------
-        // CHECK COMPLETENESS
-        // -------------------------------------------------
-
-        if (resumeData == null ||
-                !isCompleteResume(resumeData)) {
-
-            System.out.println(
-                    "AI response is incomplete. Requesting complete JSON again..."
-            );
-
-            String retryPrompt =
-                    createRetryPrompt(
-                            userResumeDescription
-                    );
-
-            String retryResponse =
-                    callAI(retryPrompt);
-
-            System.out.println(
-                    "\n================ AI RETRY RESPONSE ================\n"
-            );
-
-            System.out.println(retryResponse);
-
-            System.out.println(
-                    "\n====================================================\n"
-            );
-
-            resumeData =
-                    parseResumeResponse(retryResponse);
-        }
+        Map<String, Object> resumeData =
+                parseResumeResponse(response);
 
         // -------------------------------------------------
         // FINAL VALIDATION
@@ -146,22 +105,373 @@ public class ResumeServiceImpl implements ResumeService {
     }
 
     // =====================================================
-    // CALL AI
+    // CALL AI WITH STRICT JSON SCHEMA
     // =====================================================
 
-    private String callAI(String promptContent){
-        Prompt prompt=new Prompt(promptContent);
+    private String callAI(String promptContent) {
 
-        String response=chatClient.
-                prompt(prompt)
-                .call().content();
+        /*
+         * Groq supports OpenAI-compatible Structured Outputs.
+         *
+         * GPT-OSS-20B supports strict JSON schema output.
+         */
 
-        if(response==null || response.isBlank()){
+        ResponseFormat.JsonSchema jsonSchema =
+                ResponseFormat.JsonSchema
+                        .builder()
+                        .name("resume_response")
+                        .schema(getResumeJsonSchema())
+                        .strict(true)
+                        .build();
+
+        ResponseFormat responseFormat =
+                new ResponseFormat();
+
+        responseFormat.setType(
+                ResponseFormat.Type.JSON_SCHEMA
+        );
+
+        responseFormat.setJsonSchema(
+                jsonSchema
+        );
+
+        OpenAiChatOptions options =
+                OpenAiChatOptions
+                        .builder()
+                        .model("openai/gpt-oss-20b")
+                        .responseFormat(responseFormat)
+                        .build();
+
+        Prompt prompt =
+                new Prompt(
+                        promptContent,
+                        options
+                );
+
+        String response =
+                chatClient
+                        .prompt(prompt)
+                        .call()
+                        .content();
+
+        if (response == null ||
+                response.isBlank()) {
+
             throw new RuntimeException(
                     "Groq returned an empty response."
             );
         }
+
         return response;
+    }
+
+    // =====================================================
+    // JSON SCHEMA
+    // =====================================================
+
+    private String getResumeJsonSchema() {
+
+        return """
+        {
+          "type": "object",
+
+          "properties": {
+
+            "personalInformation": {
+              "type": "object",
+
+              "properties": {
+                "fullName": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "phoneNumber": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "linkedin": {
+                  "type": "string"
+                },
+                "gitHub": {
+                  "type": "string"
+                },
+                "portfolio": {
+                  "type": "string"
+                }
+              },
+
+              "required": [
+                "fullName",
+                "email",
+                "phoneNumber",
+                "location",
+                "linkedin",
+                "gitHub",
+                "portfolio"
+              ],
+
+              "additionalProperties": false
+            },
+
+            "summary": {
+              "type": "string"
+            },
+
+            "skills": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "level": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "title",
+                  "level"
+                ],
+
+                "additionalProperties": false
+              }
+            },
+
+            "experience": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "jobTitle": {
+                    "type": "string"
+                  },
+                  "company": {
+                    "type": "string"
+                  },
+                  "location": {
+                    "type": "string"
+                  },
+                  "duration": {
+                    "type": "string"
+                  },
+                  "responsibility": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "jobTitle",
+                  "company",
+                  "location",
+                  "duration",
+                  "responsibility"
+                ],
+
+                "additionalProperties": false
+              }
+            },
+
+            "education": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "degree": {
+                    "type": "string"
+                  },
+                  "university": {
+                    "type": "string"
+                  },
+                  "location": {
+                    "type": "string"
+                  },
+                  "graduationYear": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "degree",
+                  "university",
+                  "location",
+                  "graduationYear"
+                ],
+
+                "additionalProperties": false
+              }
+            },
+
+            "certifications": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "issuingOrganization": {
+                    "type": "string"
+                  },
+                  "year": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "title",
+                  "issuingOrganization",
+                  "year"
+                ],
+
+                "additionalProperties": false
+              }
+            },
+
+            "projects": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+
+                  "description": {
+                    "type": "string"
+                  },
+
+                  "technologiesUsed": {
+                    "type": "array",
+
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+
+                  "githubLink": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "title",
+                  "description",
+                  "technologiesUsed",
+                  "githubLink"
+                ],
+
+                "additionalProperties": false
+              }
+            },
+
+            "achievements": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+
+                  "year": {
+                    "type": "string"
+                  },
+
+                  "extraInformation": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "title",
+                  "year",
+                  "extraInformation"
+                ],
+
+                "additionalProperties": false
+              }
+            },
+
+            "languages": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "id": {
+                    "type": "integer"
+                  },
+
+                  "name": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "id",
+                  "name"
+                ],
+
+                "additionalProperties": false
+              }
+            },
+
+            "interests": {
+              "type": "array",
+
+              "items": {
+                "type": "object",
+
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+
+                "required": [
+                  "name"
+                ],
+
+                "additionalProperties": false
+              }
+            }
+          },
+
+          "required": [
+            "personalInformation",
+            "summary",
+            "skills",
+            "experience",
+            "education",
+            "certifications",
+            "projects",
+            "achievements",
+            "languages",
+            "interests"
+          ],
+
+          "additionalProperties": false
+        }
+        """;
     }
 
     // =====================================================
@@ -216,128 +526,6 @@ public class ResumeServiceImpl implements ResumeService {
     }
 
     // =====================================================
-    // RETRY PROMPT
-    // =====================================================
-
-    private String createRetryPrompt(
-            String userDescription
-    ) {
-
-        return """
-                You are an AI resume generation assistant.
-
-                The previous AI response was incomplete.
-
-                Generate the COMPLETE resume JSON again.
-
-                IMPORTANT:
-
-                - Return ONLY valid JSON.
-                - Do NOT use Markdown.
-                - Do NOT use code fences.
-                - Do NOT add explanations.
-                - Do NOT stop after personalInformation.
-                - Do NOT stop after summary.
-                - ALL required sections MUST be present.
-                - Use ONLY information from the user description.
-                - Do NOT invent information.
-                - Missing string values must be "".
-                - Missing arrays must be [].
-                - If the user provided information for a section, populate that section.
-                - technologiesUsed MUST be an array.
-                - languages MUST contain objects with id and name.
-                - interests MUST contain objects with name.
-
-                The response MUST contain exactly these top-level keys:
-
-                personalInformation
-                summary
-                skills
-                experience
-                education
-                certifications
-                projects
-                achievements
-                languages
-                interests
-
-                REQUIRED JSON STRUCTURE:
-
-                {
-                  "personalInformation": {
-                    "fullName": "",
-                    "email": "",
-                    "phoneNumber": "",
-                    "location": "",
-                    "linkedin": "",
-                    "gitHub": "",
-                    "portfolio": ""
-                  },
-                  "summary": "",
-                  "skills": [
-                    {
-                      "title": "",
-                      "level": ""
-                    }
-                  ],
-                  "experience": [
-                    {
-                      "jobTitle": "",
-                      "company": "",
-                      "location": "",
-                      "duration": "",
-                      "responsibility": ""
-                    }
-                  ],
-                  "education": [
-                    {
-                      "degree": "",
-                      "university": "",
-                      "location": "",
-                      "graduationYear": ""
-                    }
-                  ],
-                  "certifications": [
-                    {
-                      "title": "",
-                      "issuingOrganization": "",
-                      "year": ""
-                    }
-                  ],
-                  "projects": [
-                    {
-                      "title": "",
-                      "description": "",
-                      "technologiesUsed": [],
-                      "githubLink": ""
-                    }
-                  ],
-                  "achievements": [
-                    {
-                      "title": "",
-                      "year": "",
-                      "extraInformation": ""
-                    }
-                  ],
-                  "languages": [
-                    {
-                      "id": 1,
-                      "name": ""
-                    }
-                  ],
-                  "interests": [
-                    {
-                      "name": ""
-                    }
-                  ]
-                }
-
-                USER DESCRIPTION:
-
-                """ + userDescription;
-    }
-
-    // =====================================================
     // PARSE AI RESPONSE
     // =====================================================
 
@@ -380,8 +568,9 @@ public class ResumeServiceImpl implements ResumeService {
 
             return objectMapper.convertValue(
                     jsonNode,
-                    new TypeReference<Map<String, Object>>() {
-                    }
+                    new TypeReference<
+                            Map<String, Object>
+                            >() {}
             );
 
         } catch (Exception e) {
@@ -416,8 +605,12 @@ public class ResumeServiceImpl implements ResumeService {
             return false;
         }
 
-        // Required top-level keys
+        // -------------------------------------------------
+        // REQUIRED TOP-LEVEL KEYS
+        // -------------------------------------------------
+
         String[] requiredKeys = {
+
                 "personalInformation",
                 "summary",
                 "skills",
@@ -443,7 +636,7 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         // -------------------------------------------------
-        // Personal information
+        // PERSONAL INFORMATION
         // -------------------------------------------------
 
         Object personalInformation =
@@ -459,10 +652,11 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         // -------------------------------------------------
-        // Required arrays
+        // REQUIRED ARRAYS
         // -------------------------------------------------
 
         String[] arrayKeys = {
+
                 "skills",
                 "experience",
                 "education",
@@ -502,6 +696,7 @@ public class ResumeServiceImpl implements ResumeService {
                 response.trim();
 
         // Remove ```json
+
         if (cleaned.startsWith("```json")) {
 
             cleaned =
@@ -511,6 +706,7 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         // Remove ```
+
         else if (cleaned.startsWith("```")) {
 
             cleaned =
@@ -520,6 +716,7 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         // Remove ending ```
+
         if (cleaned.endsWith("```")) {
 
             cleaned =
@@ -530,6 +727,7 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         // Extract JSON object
+
         int firstBrace =
                 cleaned.indexOf("{");
 
