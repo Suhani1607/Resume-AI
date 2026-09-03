@@ -67,7 +67,7 @@ public class ResumeServiceImpl implements ResumeService {
                 );
 
         // -------------------------------------------------
-        // CALL AI
+        // FIRST AI REQUEST
         // -------------------------------------------------
 
         String response = callAI(promptContent);
@@ -83,11 +83,57 @@ public class ResumeServiceImpl implements ResumeService {
         );
 
         // -------------------------------------------------
-        // PARSE JSON
+        // PARSE RESPONSE
         // -------------------------------------------------
 
-        Map<String, Object> resumeData =
-                parseResumeResponse(response);
+        Map<String, Object> resumeData;
+
+        try {
+
+            resumeData =
+                    parseResumeResponse(response);
+
+        } catch (IOException e) {
+
+            System.err.println(
+                    "First AI response was invalid."
+            );
+
+            resumeData = null;
+        }
+
+        // -------------------------------------------------
+        // RETRY IF INCOMPLETE
+        // -------------------------------------------------
+
+        if (resumeData == null ||
+                !isCompleteResume(resumeData)) {
+
+            System.out.println(
+                    "AI response is incomplete. Retrying..."
+            );
+
+            String retryPrompt =
+                    createRetryPrompt(
+                            userResumeDescription
+                    );
+
+            String retryResponse =
+                    callAI(retryPrompt);
+
+            System.out.println(
+                    "\n================ AI RETRY RESPONSE ================\n"
+            );
+
+            System.out.println(retryResponse);
+
+            System.out.println(
+                    "\n====================================================\n"
+            );
+
+            resumeData =
+                    parseResumeResponse(retryResponse);
+        }
 
         // -------------------------------------------------
         // FINAL VALIDATION
@@ -105,39 +151,27 @@ public class ResumeServiceImpl implements ResumeService {
     }
 
     // =====================================================
-    // CALL AI WITH STRICT JSON SCHEMA
+    // CALL AI
     // =====================================================
 
     private String callAI(String promptContent) {
 
         /*
-         * Groq supports OpenAI-compatible Structured Outputs.
+         * IMPORTANT:
          *
-         * GPT-OSS-20B supports strict JSON schema output.
+         * We are using JSON OBJECT mode instead of JSON SCHEMA.
+         *
+         * This avoids the Groq 400 schema mismatch that you
+         * are currently getting.
          */
 
-        ResponseFormat.JsonSchema jsonSchema =
-                ResponseFormat.JsonSchema
-                        .builder()
-                        .name("resume_response")
-                        .schema(getResumeJsonSchema())
-                        .strict(true)
+        ResponseFormat responseFormat =
+                ResponseFormat.builder()
+                        .type(ResponseFormat.Type.JSON_OBJECT)
                         .build();
 
-        ResponseFormat responseFormat =
-                new ResponseFormat();
-
-        responseFormat.setType(
-                ResponseFormat.Type.JSON_SCHEMA
-        );
-
-        responseFormat.setJsonSchema(
-                jsonSchema
-        );
-
         OpenAiChatOptions options =
-                OpenAiChatOptions
-                        .builder()
+                OpenAiChatOptions.builder()
                         .model("openai/gpt-oss-20b")
                         .responseFormat(responseFormat)
                         .build();
@@ -163,315 +197,6 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         return response;
-    }
-
-    // =====================================================
-    // JSON SCHEMA
-    // =====================================================
-
-    private String getResumeJsonSchema() {
-
-        return """
-        {
-          "type": "object",
-
-          "properties": {
-
-            "personalInformation": {
-              "type": "object",
-
-              "properties": {
-                "fullName": {
-                  "type": "string"
-                },
-                "email": {
-                  "type": "string"
-                },
-                "phoneNumber": {
-                  "type": "string"
-                },
-                "location": {
-                  "type": "string"
-                },
-                "linkedin": {
-                  "type": "string"
-                },
-                "gitHub": {
-                  "type": "string"
-                },
-                "portfolio": {
-                  "type": "string"
-                }
-              },
-
-              "required": [
-                "fullName",
-                "email",
-                "phoneNumber",
-                "location",
-                "linkedin",
-                "gitHub",
-                "portfolio"
-              ],
-
-              "additionalProperties": false
-            },
-
-            "summary": {
-              "type": "string"
-            },
-
-            "skills": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "title": {
-                    "type": "string"
-                  },
-                  "level": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "title",
-                  "level"
-                ],
-
-                "additionalProperties": false
-              }
-            },
-
-            "experience": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "jobTitle": {
-                    "type": "string"
-                  },
-                  "company": {
-                    "type": "string"
-                  },
-                  "location": {
-                    "type": "string"
-                  },
-                  "duration": {
-                    "type": "string"
-                  },
-                  "responsibility": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "jobTitle",
-                  "company",
-                  "location",
-                  "duration",
-                  "responsibility"
-                ],
-
-                "additionalProperties": false
-              }
-            },
-
-            "education": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "degree": {
-                    "type": "string"
-                  },
-                  "university": {
-                    "type": "string"
-                  },
-                  "location": {
-                    "type": "string"
-                  },
-                  "graduationYear": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "degree",
-                  "university",
-                  "location",
-                  "graduationYear"
-                ],
-
-                "additionalProperties": false
-              }
-            },
-
-            "certifications": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "title": {
-                    "type": "string"
-                  },
-                  "issuingOrganization": {
-                    "type": "string"
-                  },
-                  "year": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "title",
-                  "issuingOrganization",
-                  "year"
-                ],
-
-                "additionalProperties": false
-              }
-            },
-
-            "projects": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "title": {
-                    "type": "string"
-                  },
-
-                  "description": {
-                    "type": "string"
-                  },
-
-                  "technologiesUsed": {
-                    "type": "array",
-
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-
-                  "githubLink": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "title",
-                  "description",
-                  "technologiesUsed",
-                  "githubLink"
-                ],
-
-                "additionalProperties": false
-              }
-            },
-
-            "achievements": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "title": {
-                    "type": "string"
-                  },
-
-                  "year": {
-                    "type": "string"
-                  },
-
-                  "extraInformation": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "title",
-                  "year",
-                  "extraInformation"
-                ],
-
-                "additionalProperties": false
-              }
-            },
-
-            "languages": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "id": {
-                    "type": "integer"
-                  },
-
-                  "name": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "id",
-                  "name"
-                ],
-
-                "additionalProperties": false
-              }
-            },
-
-            "interests": {
-              "type": "array",
-
-              "items": {
-                "type": "object",
-
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  }
-                },
-
-                "required": [
-                  "name"
-                ],
-
-                "additionalProperties": false
-              }
-            }
-          },
-
-          "required": [
-            "personalInformation",
-            "summary",
-            "skills",
-            "experience",
-            "education",
-            "certifications",
-            "projects",
-            "achievements",
-            "languages",
-            "interests"
-          ],
-
-          "additionalProperties": false
-        }
-        """;
     }
 
     // =====================================================
@@ -523,6 +248,134 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         return result;
+    }
+
+    // =====================================================
+    // RETRY PROMPT
+    // =====================================================
+
+    private String createRetryPrompt(
+            String userDescription
+    ) {
+
+        return """
+                You are an AI resume generation assistant.
+
+                Generate a complete resume from the user's description.
+
+                IMPORTANT RULES:
+
+                1. Return ONLY valid JSON.
+                2. Do NOT use Markdown.
+                3. Do NOT use ```json.
+                4. Do NOT add explanations.
+                5. Do NOT add text before or after the JSON.
+                6. The JSON MUST be complete.
+                7. Do NOT stop in the middle of the response.
+                8. Use ONLY information provided by the user.
+                9. Do NOT invent information.
+                10. Missing string values must be "".
+                11. Missing arrays must be [].
+                12. technologiesUsed MUST be an array.
+                13. languages MUST contain objects with id and name.
+                14. interests MUST contain objects with name.
+
+                The JSON MUST contain exactly these top-level fields:
+
+                personalInformation
+                summary
+                skills
+                experience
+                education
+                certifications
+                projects
+                achievements
+                languages
+                interests
+
+                Use this structure:
+
+                {
+                  "personalInformation": {
+                    "fullName": "",
+                    "email": "",
+                    "phoneNumber": "",
+                    "location": "",
+                    "linkedin": "",
+                    "gitHub": "",
+                    "portfolio": ""
+                  },
+
+                  "summary": "",
+
+                  "skills": [
+                    {
+                      "title": "",
+                      "level": ""
+                    }
+                  ],
+
+                  "experience": [
+                    {
+                      "jobTitle": "",
+                      "company": "",
+                      "location": "",
+                      "duration": "",
+                      "responsibility": ""
+                    }
+                  ],
+
+                  "education": [
+                    {
+                      "degree": "",
+                      "university": "",
+                      "location": "",
+                      "graduationYear": ""
+                    }
+                  ],
+
+                  "certifications": [
+                    {
+                      "title": "",
+                      "issuingOrganization": "",
+                      "year": ""
+                    }
+                  ],
+
+                  "projects": [
+                    {
+                      "title": "",
+                      "description": "",
+                      "technologiesUsed": [],
+                      "githubLink": ""
+                    }
+                  ],
+
+                  "achievements": [
+                    {
+                      "title": "",
+                      "year": "",
+                      "extraInformation": ""
+                    }
+                  ],
+
+                  "languages": [
+                    {
+                      "id": 1,
+                      "name": ""
+                    }
+                  ],
+
+                  "interests": [
+                    {
+                      "name": ""
+                    }
+                  ]
+                }
+
+                USER DESCRIPTION:
+
+                """ + userDescription;
     }
 
     // =====================================================
@@ -606,7 +459,7 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         // -------------------------------------------------
-        // REQUIRED TOP-LEVEL KEYS
+        // REQUIRED TOP LEVEL KEYS
         // -------------------------------------------------
 
         String[] requiredKeys = {
